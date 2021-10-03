@@ -13,6 +13,8 @@ class roomModalViewController: UIViewController {
 
     var meID: String!
     var meName: String!
+    var meIcon: String!
+    var meDescriotion: String!
     var roomID: String!
     var database: Firestore!
     var storage: Storage!
@@ -50,37 +52,69 @@ class roomModalViewController: UIViewController {
                     self.roomMember = []
                     self.roomMember.append(mapData)
                 }
+                
+                //アイコンの情報を渡して画像を表示
+                if let icon = roomData.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        //data型→image型に代入
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            self.imageView.image = image
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                }else{
+                    //ルームのサムネイルを取得する
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("rooms").child("roomThumbnail").child("\(self.roomID!).jpg")
+                    
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    self.imageView.sd_setImage(with: storageRef)
+                }
             }
         }
-        
-        //ルームのサムネイルを取得する
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("rooms").child("roomThumbnail").child("\(roomID!).jpg")
-        
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        imageView.sd_setImage(with: storageRef)
     }
     
     @IBAction func buttonToJoin(_ sender: Any) {
+        
+        //rooms内のinvitationから自身の名前を消去して、membersに名前を追加、チャット画面に遷移する
+        let roomRef = database.collection("rooms").document(roomID)
+        let meInfo = [
+            "userID": meID,
+            "userName": meName,
+            "icon": meIcon,
+            "description": meDescriotion
+        ]
+        roomRef.updateData([
+            "invitation.\(meID!)": FieldValue.delete(),
+            "members.\(meID!)": meInfo
+        ])
+        
         //invitationから自身の名前を消去して、roomのメンバーに名前を追加、チャット画面に遷移する
         //invitationから自身の情報を消去
-        database.collection("invitation").document(roomID).updateData([
-            "users": FieldValue.arrayRemove([["userID": meID]])
-        ])
+//        database.collection("invitation").document(roomID).updateData([
+//            "users": FieldValue.arrayRemove([["userID": meID]])
+//        ])
         //fireStoreからmembersのデータを全て取得、配列に格納
         //配列に新しく自身の情報をappendしてsetDataを行う2021/08/26解決!
-        let roomRef = database.collection("rooms").document(roomID)
-        var roomDoc: [String:Any] = [
-            "members": []
-        ]
-        let meArray: [String:Any] = [
-            "userID": meID!,
-            "userName": meName!
-        ]
-        //配列に情報を格納
-        self.roomMember.append(meArray)
-
-        roomDoc["members"] = self.roomMember
-        roomRef.updateData(roomDoc)
+//        let roomref = database.collection("rooms").document(roomID)
+//        var roomDoc: [String:Any] = [
+//            "members": []
+//        ]
+//        let meArray: [String:Any] = [
+//            "userID": meID!,
+//            "userName": meName!
+//        ]
+//        //配列に情報を格納
+//        self.roomMember.append(meArray)
+//
+//        roomDoc["members"] = self.roomMember
+//        roomref.updateData(roomDoc)
         //チャット画面に遷移
         let roomChatViewController = storyboard?.instantiateViewController(identifier: "roomChat") as! roomChatViewController
         roomChatViewController.room = Room(data: ["roomID": roomID!])
@@ -89,8 +123,8 @@ class roomModalViewController: UIViewController {
     
     @IBAction func buttonToReject(_ sender: Any) {
         //invitationから自身の名前を消去して、画面をルーム一覧へ遷移
-        database.collection("invitation").document(roomID).updateData([
-            "users": FieldValue.arrayRemove([["userID": meID]])
+        database.collection("rooms").document(roomID).updateData([
+            "invitation.\(meID!)": FieldValue.delete()
         ])
         dismiss(animated: true, completion: nil)
     }

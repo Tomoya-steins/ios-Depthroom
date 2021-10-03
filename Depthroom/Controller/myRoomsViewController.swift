@@ -13,6 +13,8 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
     
     var me: AppUser!
     var myName: String!
+    var myIcon: String!
+    var myDescription: String!
     var database: Firestore!
     var storage: Storage!
     var invitation: [[String: Any]] = []
@@ -38,34 +40,6 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
         
         //カスタムしたセルを登録(roomCell)
         tableView.register(UINib(nibName: "roomCell", bundle: nil), forCellReuseIdentifier: "Cell")
-    
-        //ユーザ詳細のボタンにプロフィール画像を表示
-        //何もなければdefaultを設定
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
-        //キャッシュを消して画像を表示
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        storageRef.downloadURL { (url, error) in
-            if error != nil{
-                print("error: \(error!.localizedDescription)")
-                return
-            }
-            //URL型に代入
-            if let photoURL = URL(string: url!.absoluteString){
-                //data型→image型に代入
-                do{
-                    let data = try Data(contentsOf: photoURL)
-                    let image = UIImage(data: data)
-                    self.buttonToMyPage.setImage(image, for: .normal)
-                    //角丸に
-                    self.buttonToMyPage.layer.masksToBounds = true
-                    self.buttonToMyPage.layer.cornerRadius = 35
-                }
-                catch{
-                    print("error")
-                    return
-                }
-            }
-        }
         //クルクル更新します
         configureRefreshControl()
     }
@@ -136,36 +110,79 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
         database.collection("users").document(me.userID).getDocument { (snapshot, error) in
             if error == nil, let snapshot = snapshot, let data = snapshot.data() {
                 self.me = AppUser(data: data)
-                let meName = self.me.userName
+                
+                //アイコンの情報を渡して画像を表示
+                if let icon = self.me.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        //data型→image型に代入
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            self.buttonToMyPage.setImage(image, for: .normal)
+                            //角丸に
+                            self.buttonToMyPage.layer.masksToBounds = true
+                            self.buttonToMyPage.layer.cornerRadius = 35
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                    
+                }else{
+                    //ユーザ詳細のボタンにプロフィール画像を表示
+                    //何もなければdefaultを設定
+                    //2021/10/01 アイコンのURLをFireStore上に保存する処理が完了したため、以下の文章はいずれ消える
+                    
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.me.userID!).jpg")
+                    //キャッシュを消して画像を表示
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    storageRef.downloadURL { (url, error) in
+                        if error != nil{
+                            print("error: \(error!.localizedDescription)")
+                            return
+                        }
+                        //URL型に代入
+                        if let photoURL = URL(string: url!.absoluteString){
+                            //data型→image型に代入
+                            do{
+                                let data = try Data(contentsOf: photoURL)
+                                let image = UIImage(data: data)
+                                self.buttonToMyPage.setImage(image, for: .normal)
+                                //角丸に
+                                self.buttonToMyPage.layer.masksToBounds = true
+                                self.buttonToMyPage.layer.cornerRadius = 35
+                            }
+                            catch{
+                                print("error")
+                                return
+                            }
+                            
+                        }
+                    }
+                }
                 
                 //ポップアップのために自身の名前を渡す
-                self.myName = meName
+                self.myName = self.me.userName
+                self.myIcon = self.me.icon
+                self.myDescription = self.me.description
                 //ルームの情報を取得(viewWillAppearとの違いはわからない)
                 
-                self.roomInfoFromFirebase(meName: meName!)
+                self.roomInfoFromFirebase()
             }
         }
     }
     
     
     //fireStoreからルーム情報を取得するためのメソッド
-    func roomInfoFromFirebase(meName: String){
+    func roomInfoFromFirebase(){
         roomArray = []
         invitationArray = []
-        //memberが一人のみの場合以下のarrayContainsの手法は使用できないため、専用の検索方法を用意
-        database.collection("rooms").whereField("members.userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
-            if error == nil, let snapshot = snapshot{
-                for document in snapshot.documents{
-                    let data = document.data()
-                    let room = Room(data: data)
-                    self.roomArray.append(room)
-                }
-                self.tableView.reloadData()
-            }
-        }
         
         //自身が所属するルームの内容をFireStoreから取得
-        database.collection("rooms").whereField("members", arrayContains: ["userID": me.userID!, "userName": meName]).getDocuments { (snapshot, error) in
+        database.collection("rooms").whereField("members.\(me.userID!).userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
             if error == nil, let snapshot = snapshot{
                 for document in snapshot.documents{
                     //自身が所属するルームを配列に追加
@@ -176,19 +193,57 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
                 self.tableView.reloadData()
             }
         }
+//        //memberが一人のみの場合以下のarrayContainsの手法は使用できないため、専用の検索方法を用意
+//        database.collection("rooms").whereField("members.userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
+//            if error == nil, let snapshot = snapshot{
+//                for document in snapshot.documents{
+//                    let data = document.data()
+//                    let room = Room(data: data)
+//                    self.roomArray.append(room)
+//                }
+//                self.tableView.reloadData()
+//            }
+//        }
         
-        //invitationから自身のデータを含むドキュメントを取得、invitationArrayに格納
-        database.collection("invitation").whereField("users", arrayContains: ["userID": me.userID!]).getDocuments { (snapshot, error) in
+//        //自身が所属するルームの内容をFireStoreから取得
+//        database.collection("rooms").whereField("members", arrayContains: ["userID": me.userID!, "userName": meName]).getDocuments { (snapshot, error) in
+//            if error == nil, let snapshot = snapshot{
+//                for document in snapshot.documents{
+//                    //自身が所属するルームを配列に追加
+//                    let data = document.data()
+//                    let room = Room(data: data)
+//                    self.roomArray.append(room)
+//                }
+//                self.tableView.reloadData()
+//            }
+//        }
+        
+        //roomsのinvitationから自身データを含むドキュメントを取得、invitationArrayに格納
+        database.collection("rooms").whereField("invitation.\(me.userID!).userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
             if error == nil, let snapshot = snapshot{
                 for document in snapshot.documents{
                     //invitationArray はポップアップ表示の際に使われる
                     self.invitationArray.append(document.documentID)
-                    //ドキュメントID == roomID のため取得し、invitationToRooms()にてroomArrayにappendを行う
-                    let roomID = document.documentID
-                    self.invitationToRooms(roomID: roomID)
+                    let data = document.data()
+                    let room = Room(data: data)
+                    self.roomArray.append(room)
                 }
             }
         }
+        
+        
+        //invitationから自身のデータを含むドキュメントを取得、invitationArrayに格納
+//        database.collection("invitation").whereField("users", arrayContains: ["userID": me.userID!]).getDocuments { (snapshot, error) in
+//            if error == nil, let snapshot = snapshot{
+//                for document in snapshot.documents{
+//                    //invitationArray はポップアップ表示の際に使われる
+//                    self.invitationArray.append(document.documentID)
+//                    //ドキュメントID == roomID のため取得し、invitationToRooms()にてroomArrayにappendを行う
+//                    let roomID = document.documentID
+//                    self.invitationToRooms(roomID: roomID)
+//                }
+//            }
+//        }
         
         //updatedAtが新しい順にroomArrayの順番を並べ替える
         if roomArray.isEmpty != true{
@@ -196,24 +251,24 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
         }
     }
     //invitationから受け取ったroomIDでroomの情報を取得、roomArrayに追加
-    func invitationToRooms(roomID: String){
-        database.collection("rooms").document(roomID).getDocument { (snapshot, error) in
-            if error == nil, ((snapshot?.exists) != nil) ,let snapshot = snapshot{
-                let data = snapshot.data()
-                let room = Room(data: data!)
-                
-//                if let mapData = data!["members"] as? [String:Any] {
-//                    print("aaaaaaaaaaa")
-//                    print("あああ:", mapData)
-//                }
-                
-                self.roomArray.append(room)
-            }else{
-                print("Document does not exist")
-            }
-            self.tableView.reloadData()
-        }
-    }
+//    func invitationToRooms(roomID: String){
+//        database.collection("rooms").document(roomID).getDocument { (snapshot, error) in
+//            if error == nil, ((snapshot?.exists) != nil) ,let snapshot = snapshot{
+//                let data = snapshot.data()
+//                let room = Room(data: data!)
+//
+////                if let mapData = data!["members"] as? [String:Any] {
+////                    print("aaaaaaaaaaa")
+////                    print("あああ:", mapData)
+////                }
+//
+//                self.roomArray.append(room)
+//            }else{
+//                print("Document does not exist")
+//            }
+//            self.tableView.reloadData()
+//        }
+//    }
     
     func activeRoomFromReserved(){
         //インスタンス化
@@ -256,10 +311,12 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
                         let modalViewController = storyboard?.instantiateViewController(identifier: "roomModalViewController") as! roomModalViewController
                         modalViewController.modalPresentationStyle = .custom
                         modalViewController.transitioningDelegate = self
-                        //自身のIDとルームIDと自身の名前を渡す
+                        //自身のIDとルームIDと自身の名前とアイコンと紹介文を渡す
                         modalViewController.meID = me.userID
                         modalViewController.roomID = roomArray[indexPath.row].roomID
                         modalViewController.meName = myName
+                        modalViewController.meIcon = myIcon
+                        modalViewController.meDescriotion = myDescription
                         present(modalViewController, animated: true, completion: nil)
                     }else{
                         performSegue(withIdentifier: "roomChat", sender: indexPath.row)
@@ -317,11 +374,31 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
             }
         }
         
-        //ルームのサムネイル画像を取得・表示
-        let storageRefRoom = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("rooms").child("roomThumbnail").child("\(roomArray[indexPath.row].roomID!).jpg")
+        //ルームのサムネイル画像を表示
+        if let icon = roomArray[indexPath.row].icon{
+            let storageRef = icon
+            //URL型に代入
+            if let photoURL = URL(string: storageRef){
+                do{
+                    //data→image型に代入
+                    let data = try Data(contentsOf: photoURL)
+                    let image = UIImage(data: data)
+                    cell.roomThumbnailImageView.image = image
+                }
+                catch{
+                    print("error")
+                }
+            }
+        }else{
+            let storageRefRoom = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("rooms").child("roomThumbnail").child("\(roomArray[indexPath.row].roomID!).jpg")
+            
+            SDImageCache.shared.removeImage(forKey: "\(storageRefRoom)", withCompletion: nil)
+            cell.roomThumbnailImageView.sd_setImage(with: storageRefRoom)
+        }
         
-        SDImageCache.shared.removeImage(forKey: "\(storageRefRoom)", withCompletion: nil)
-        cell.roomThumbnailImageView.sd_setImage(with: storageRefRoom)
+        //2021/10/02 サムネイル画像はusers に保存されているが、
+        //cellForRowAtではusersに対してgetDocumentしていないため、
+        //ストレージから直接呼び出すのと大差ない
         
         //ルームのオーナーの画像を取得・表示
         let storageRefOwner = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(roomArray[indexPath.row].ownerID!).jpg")

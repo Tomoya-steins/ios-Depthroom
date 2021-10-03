@@ -62,16 +62,33 @@ class myPageViewController: UIViewController,UITableViewDataSource, UITableViewD
             if error == nil, let snapshot = snapshot, let data = snapshot.data() {
                 self.user = AppUser(data: data)
                 self.myUserNameLabel.text = self.user.userName
-                self.profileContent.text = self.user.userProfile
+                self.profileContent.text = self.user.description
+                
+                //アイコンの情報を渡して画像を表示
+                if let icon = self.user.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            self.myProfileImage.image = image
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                }else{
+                    //プロフィール画像を表示
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.user.userID!).jpg")
+                    
+                    //キャッシュを消して画像を表示
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    self.myProfileImage.sd_setImage(with: storageRef)
+                }
             }
         }
-        
-        //プロフィール画像を表示
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(user.userID!).jpg")
-        
-        //キャッシュを消して画像を表示
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        myProfileImage.sd_setImage(with: storageRef)
         
         //自身の投稿内容をFireStoreから取得
         database.collection("posts").whereField("senderID", isEqualTo: user.userID!).getDocuments { (snapshot, error) in

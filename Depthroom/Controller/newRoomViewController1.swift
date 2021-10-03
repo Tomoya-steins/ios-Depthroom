@@ -61,16 +61,12 @@ class newRoomViewController1: UIViewController, UITableViewDelegate, UITableView
          toolbar.setItems([spacelItem, doneItem], animated: true)
         timeLabel.inputView = datePicker
         timeLabel.inputAccessoryView = toolbar
-        
-        // デフォルト日付
-        //let formatter = DateFormatter()
-        //formatter.dateFormat = "yyyy-MM-dd"
-        //datePicker.date = formatter.date(from: "2020-8-12")!
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         followerArray = []
+        
         //fireStore内の"follows"からデータを取得
         //今回は相互フォロー状態の人のみを招待できる
         //2021/08/11日現在、招待機能は実装できていない
@@ -174,16 +170,30 @@ class newRoomViewController1: UIViewController, UITableViewDelegate, UITableView
                 self.inviteSelectUserID.append(appUser)
                 //cellに名前を表示(選択した場合でも必要みたい)
                 cell.userNameLabel.text = appUser.userName
+                //ユーザのプロフィール画像を取得・表示(セルを選択したときも必要みたい)
+                if let icon = self.me.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            cell.profileImageView.image = image
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                }else{
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.followerArray[indexPath.row].userID!).jpg")
+                    
+                    //キャッシュを消している
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    cell.profileImageView.sd_setImage(with: storageRef)
+                }
             }
         }
-        
-        //ユーザのプロフィール画像を取得・表示(セルを選択したときも必要みたい)
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(followerArray[indexPath.row].userID!).jpg")
-        
-        //キャッシュを消している
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        cell.profileImageView.sd_setImage(with: storageRef)
-        
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -197,15 +207,31 @@ class newRoomViewController1: UIViewController, UITableViewDelegate, UITableView
             if error == nil, let snapshot = snapshot, let data = snapshot.data(){
                 let appUser = AppUser(data: data)
                 cell.userNameLabel.text = appUser.userName
+                
+                //ユーザのプロフィール画像を取得・表示
+                if let icon = self.me.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            cell.profileImageView.image = image
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                }else{
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.followerArray[indexPath.row].userID!).jpg")
+                    
+                    //キャッシュを消している
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    cell.profileImageView.sd_setImage(with: storageRef)
+                }
             }
         }
-        
-        //ユーザのプロフィール画像を取得・表示
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(followerArray[indexPath.row].userID!).jpg")
-        
-        //キャッシュを消している
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        cell.profileImageView.sd_setImage(with: storageRef)
         
         return cell
     }

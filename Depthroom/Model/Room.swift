@@ -16,6 +16,7 @@ struct Room {
     let createdAt: Timestamp!
     let updatedAt: Timestamp!
     let visible: Bool!
+    let icon: String!
 
     init(data: [String: Any]) {
         roomID = data["roomID"] as? String
@@ -25,5 +26,6 @@ struct Room {
         createdAt = data["createdAt"] as? Timestamp
         updatedAt = data["updatedAt"] as? Timestamp
         visible = data["visible"] as? Bool
+        icon = data["icon"] as? String
     }
 }

@@ -26,15 +26,32 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
         checkModel.showCheckPermission()
         database = Firestore.firestore()
         storage = Storage.storage()
-        myUserNameLabel.text = me.userName
-        myProfileContent.text = me.userProfile
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        //画像を表示
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
-        myProfileImage.sd_setImage(with: storageRef)
+        myUserNameLabel.text = me.userName
+        myProfileContent.text = me.description
+        
+        if let icon = me.icon{
+            let storageRef = icon
+            //URL型に代入
+            if let photoURL = URL(string: storageRef){
+                do{
+                    let data = try Data(contentsOf: photoURL)
+                    let image = UIImage(data: data)
+                    self.myProfileImage.image = image
+                }
+                catch{
+                    print("error")
+                    return
+                }
+            }
+        }else{
+            //画像を表示
+            let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+            myProfileImage.sd_setImage(with: storageRef)
+        }
     }
     
     @IBAction func editComplete(_ sender: Any) {
@@ -44,16 +61,16 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
         
         if newUserNameLabel.isEmpty != true, let image = myProfileImage.image{
         
-            //プロフィールを保存
-            database.collection("users").document(me.userID).setData([ "userProfile":  newUserProfile], merge: true)
-            
-            //ユーザネームを保存
-            database.collection("users").document(me.userID).setData(["userName": newUserNameLabel], merge: true)
-            
             //プロフィール画像を保存
             let data = image.jpegData(compressionQuality: 1.0)
             self.sendProfileImageData(data: data!)
-            
+            //ユーザネーム・プロフィールをusersに保存
+            let meRef = database.collection("users").document(me.userID)
+            meRef.setData([
+                "userName": newUserNameLabel,
+                "description": newUserProfile
+            ], merge: true)
+                        
             self.dismiss(animated: true, completion: nil)
         }
     }
@@ -160,6 +177,11 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
                     
                     if let photoURL = URL(string: url!.absoluteString){
                         changeRequest?.photoURL = photoURL
+                        
+                        //名前などの更新の前にアイコンに対してurlをstringで保存(更新)する
+                        self.database.collection("users").document(self.me.userID).updateData([
+                            "icon": url!.absoluteString
+                        ])
                     }
                     //ここちょっと自信がないです
                     changeRequest?.commitChanges(completion: nil)

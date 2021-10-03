@@ -13,7 +13,6 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
     var auth: Auth!
     var me: AppUser!
     var database: Firestore!
-    var iconURL: String!
     @IBOutlet weak var nameTextField: UITextField!
     @IBOutlet weak var profileImageView: UIImageView!
     
@@ -51,20 +50,11 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
                 self.sendProfileImageData(data: data!)
                 
                 //ユーザネームとIDを登録
+                //事前にアイコンを保存しているため、set ではなく update
                 database.collection("users").document(me.userID).setData([
                     "userID": me.userID!,
                     "userName": newUserName,
-                   // "icon": iconURL!
                 ], merge: true)
-                
-//                let saveUser = database.collection("users").document()
-//
-//                var userDoc: [String:Any] = [
-//                    "userID": me.userID!,
-//                    "userName": newUserName,
-//                    "icon": ""
-//                ]
-//                userDoc["icon"] =
                 
                 performSegue(withIdentifier: "rooms", sender: me)
             }
@@ -177,6 +167,11 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
                     
                     if let photoURL = URL(string: url!.absoluteString){
                         changeRequest?.photoURL = photoURL
+                        
+                        //名前などの前にアイコンのurlをstringで保存する
+                        self.database.collection("users").document(self.me.userID).setData([
+                            "icon": url!.absoluteString
+                        ],merge: true)
                     }
                     //ここちょっと自信がないです
                     changeRequest?.commitChanges(completion: nil)

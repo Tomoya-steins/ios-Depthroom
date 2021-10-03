@@ -27,6 +27,8 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
     @IBOutlet weak var tableView: UITableView!
     @IBOutlet weak var reserveLabel: UILabel!
     
+    //roomsのmembersに自身の情報を登録させる際、紹介文が空の場合の対策
+    var meDescription = ""
     //"example"は仮置き
     var roomID = "example"
     
@@ -71,8 +73,11 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                 if error == nil, let snapshot = snapshot, let data = snapshot.data(){
                     self.me = AppUser(data: data)
                     let meName = self.me.userName
+                    let meIcon = self.me.icon
+                    //description は空の場合があり得るため
+                    self.meDescription = self.me.description
                     //ルームと招待者の登録を行う
-                    self.registerRoomAndInvitation(roomName: roomName, roomDescription: roomDescription, image: image, meName: meName!)
+                    self.registerRoomAndInvitation(roomName: roomName, roomDescription: roomDescription, image: image, meName: meName!, meIcon: meIcon!, meDescription: self.meDescription)
                 }
             }
         }
@@ -88,12 +93,12 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
     }
     
     //createRoomアクション時の登録に関する処理
-    func registerRoomAndInvitation(roomName: String, roomDescription: String, image: UIImage, meName: String){
+    func registerRoomAndInvitation(roomName: String, roomDescription: String, image: UIImage, meName: String, meIcon: String, meDescription: String){
         
         if roomName.isEmpty != true && roomDescription.isEmpty != true && inviteSelectUser.count > 0{
             //ここでif文で分岐　内容は部屋の予約しているかどうか
             //予約していた場合は、visibleをfalseに
-            //予約していない場合は、visibleをtrueにupdateAtを追加、upadateAtはcreatedAtと同じで
+            //予約していない場合は、visibleをtrueに、upadateAtはcreatedAtと同じで
             if reserve.isEmpty != true{
                 
                 let date = dateFromString(string: reserve, format: "y年MM月dd日 HH:mm:ss")
@@ -112,7 +117,9 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                     "members": [
                         me.userID: [
                             "userID": me.userID,
-                            "userName": meName
+                            "userName": meName,
+                            "description": meDescription,
+                            "icon": meIcon
                         ]
                     ]
                 ]){err in
@@ -126,7 +133,10 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                 //招待者の情報を"invitation"に保存
                 for invite in inviteSelectUser{
                     inviteMap["\(invite.userID!)"] = [
-                        "userID": invite.userID
+                        "userID": invite.userID,
+                        "userName": invite.userName,
+                        "description": invite.description,
+                        "icon": invite.icon
                     ]
                 }
                 saveRoom.updateData([
@@ -162,12 +172,13 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
 //                    }
 //                }
                 
+                
                 //roomID(documentID)を変数に格納、ルームのサムネイル画像のファイル名に使用する
                 roomID = saveRoom.documentID
                 
                 //プロフィール画像を保存
                 let data = image.jpegData(compressionQuality: 1.0)
-                self.sendProfileImageData(data: data!)
+                self.sendProfileImageData(data: data!, roomID: roomID)
                 
                 //ここから下は予約していない時の処理
             }else{
@@ -184,7 +195,9 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                     "members": [
                         me.userID: [
                             "userID": me.userID,
-                            "userName": meName
+                            "userName": meName,
+                            "description": meDescription,
+                            "icon": meIcon
                         ]
                     ]
                 ]){err in
@@ -198,7 +211,10 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                 //招待者の情報を"invitation"に保存
                 for invite in inviteSelectUser{
                     inviteMap["\(invite.userID!)"] = [
-                        "userID": invite.userID
+                        "userID": invite.userID,
+                        "userName": invite.userName,
+                        "description": invite.description,
+                        "icon": invite.icon
                     ]
                 }
                 saveRoom.updateData([
@@ -237,7 +253,7 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                 
                 //プロフィール画像を保存
                 let data = image.jpegData(compressionQuality: 1.0)
-                self.sendProfileImageData(data: data!)
+                self.sendProfileImageData(data: data!, roomID: roomID)
             }
         }
     }
@@ -261,15 +277,31 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
             if error == nil, let snapshot = snapshot, let data = snapshot.data(){
                 let appUser = AppUser(data: data)
                 cell.userNameLabel.text = appUser.userName
+                
+                //ユーザのプロフィール画像を取得・表示
+                if let icon = self.me.icon{
+                    let storageRef = icon
+                    //URL型に代入
+                    if let photoURL = URL(string: storageRef){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            cell.profileImageView.image = image
+                        }
+                        catch{
+                            print("error")
+                            return
+                        }
+                    }
+                }else{
+                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.inviteSelectUser[indexPath.row].userID!).jpg")
+                    
+                    //キャッシュを消している
+                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
+                    cell.profileImageView.sd_setImage(with: storageRef)
+                }
             }
         }
-        
-        //ユーザのプロフィール画像を取得・表示
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(inviteSelectUser[indexPath.row].userID!).jpg")
-        
-        //キャッシュを消している
-        SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-        cell.profileImageView.sd_setImage(with: storageRef)
         
         return cell
     }
@@ -350,7 +382,7 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
         
     }
     
-    func sendProfileImageData(data:Data){
+    func sendProfileImageData(data:Data, roomID: String){
         
         let image = UIImage(data: data)
         let profileImage = image?.jpegData(compressionQuality: 0.1)
@@ -378,6 +410,11 @@ class newRoomViewController2: UIViewController, UITableViewDelegate, UITableView
                     
                     if let photoURL = URL(string: url!.absoluteString){
                         changeRequest?.photoURL = photoURL
+                        
+                        //ルーム名などの前にアイコンのurlをstringで保存する
+                        self.database.collection("rooms").document(roomID).setData([
+                            "icon": url!.absoluteString
+                        ], merge: true)
                     }
                     //ここちょっと自信がないです
                     changeRequest?.commitChanges(completion: nil)
