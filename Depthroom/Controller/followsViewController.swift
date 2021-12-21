@@ -30,51 +30,39 @@ class followsViewController: UIViewController,UITableViewDataSource, UITableView
         auth = Auth.auth()
         tableView.delegate = self
         tableView.dataSource = self
-        followArray = []
+        tableView.register(UINib(nibName: "userNameAndIconCell", bundle: nil), forCellReuseIdentifier: "userNameAndIcon")
+        
+       followAndFollowerInfo()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         //ナビゲーションバーを表示
         self.navigationController?.setNavigationBarHidden(false, animated: false)
-        
-        //ユーザネーム・フォロー周りの情報を表示
-        database.collection("users").document(user.userID).getDocument { (snapshot, error) in
-            if error == nil, let snapshot = snapshot, let data = snapshot.data() {
+        self.tabBarController?.tabBar.isHidden = true
+    }
+    
+    func followAndFollowerInfo(){
+        database.collection("users").document(user.userID).addSnapshotListener { (snapshot, error) in
+            if error == nil, let snapshot = snapshot, let data = snapshot.data(){
                 self.user = AppUser(data: data)
                 self.userNameLabel.text = self.user.userName
-                
-                //フォロー情報を配列に格納
                 if let follow = data["follow"] as? [String:Any]{
+                    self.followArray = []
                     for follow in follow.values{
                         let userInfo = AppUser(data: follow as! [String:Any])
                         self.followArray.append(userInfo)
                     }
+                    self.tableView.reloadData()
                 }
-                //フォロワー情報を配列に格納
                 if let follower = data["follower"] as? [String:Any]{
+                    self.followerArray = []
                     for follower in follower.values{
                         let userInfo = AppUser(data: follower as! [String:Any])
                         self.followerArray.append(userInfo)
                     }
+                    self.tableView.reloadData()
                 }
-                self.tableView.reloadData()
-            }
-        }
-    }
-    
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        //フォロー・フォロワーごとに配列を切り替えて遷移の値渡しを行なっている
-        if segue.identifier == "userMyPage"{
-            let nextViewController = segue.destination as! myPageViewController
-            let segmentIndex = selectSegmentedControl.selectedSegmentIndex
-            switch segmentIndex {
-            case 0:
-                nextViewController.user = AppUser(data: ["userID": followArray[sender as! Int].userID!])
-            case 1:
-                nextViewController.user = AppUser(data: ["userID": followerArray[sender as! Int].userID!])
-            default:
-                break
             }
         }
     }
@@ -84,8 +72,18 @@ class followsViewController: UIViewController,UITableViewDataSource, UITableView
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        //ユーザのマイページに遷移
-        performSegue(withIdentifier: "userMyPage", sender: indexPath.row)
+        let segmentIndex = selectSegmentedControl.selectedSegmentIndex
+        let nextViewController = self.storyboard?.instantiateViewController(identifier: "userPage") as! myPageViewController
+        switch segmentIndex{
+        case 0:
+            nextViewController.user = followArray[indexPath.row]
+            self.navigationController?.pushViewController(nextViewController, animated: true)
+        case 1:
+            nextViewController.user = followerArray[indexPath.row]
+            self.navigationController?.pushViewController(nextViewController, animated: true)
+        default:
+            break
+        }
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -101,28 +99,43 @@ class followsViewController: UIViewController,UITableViewDataSource, UITableView
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell")!
+        let cell = tableView.dequeueReusableCell(withIdentifier: "userNameAndIcon", for: indexPath) as! userNameAndIconCell
         let segmentIndex = selectSegmentedControl.selectedSegmentIndex
         switch segmentIndex {
         case 0:
-            database.collection("users").document(followArray[indexPath.row].userID).getDocument { (snapshot, error) in
-                if error == nil, let snapshot = snapshot, let data = snapshot.data(){
-                    let appUser = AppUser(data: data)
-                    cell.textLabel?.text = appUser.userName
+            cell.userNameLabel.text = followArray[indexPath.row].userName
+            //アイコンを取得・表示
+            if let photoURL = URL(string: followArray[indexPath.row].userIcon){
+                do{
+                    let data = try Data(contentsOf: photoURL)
+                    let image = UIImage(data: data)
+                    cell.userIcon.image = image
+                }
+                catch{
+                    print("error")
                 }
             }
         case 1:
-            database.collection("users").document(followerArray[indexPath.row].userID).getDocument { (snapshot, error) in
-                if error == nil, let snapshot = snapshot, let data = snapshot.data(){
-                    let appUser = AppUser(data: data)
-                    cell.textLabel?.text = appUser.userName
+            cell.userNameLabel.text = followerArray[indexPath.row].userName
+            //アイコンを取得・表示
+            if let photoURL = URL(string: followerArray[indexPath.row].userIcon){
+                do{
+                    let data = try Data(contentsOf: photoURL)
+                    let image = UIImage(data: data)
+                    cell.userIcon.image = image
+                }
+                catch{
+                    print("error")
                 }
             }
-            
         default:
             break
         }
         return cell
+    }
+    
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return view.frame.height/7
     }
 
 }

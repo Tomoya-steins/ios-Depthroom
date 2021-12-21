@@ -11,19 +11,27 @@ import Firebase
 struct AppUser {
     
     let userID: String!
-    let description: String!
+    let userDescription: String!
     let userName: String!
     let follow: [String:Any]!
     let follower: [String:Any]!
-    let icon: String!
+    let clips: [String:Any]!
+    let communities: [String:Any]!
+    let userIcon: String!
+    let blocked: [String:Any]!
+    let locked: Bool!
     
     init(data: [String:Any]) {
         
         userID = data["userID"] as? String
-        description = data["description"] as? String
+        userDescription = data["userDescription"] as? String
         userName = data["userName"] as? String
         follow = data["follow"] as? [String:Any]
         follower = data["follower"] as? [String:Any]
-        icon = data["icon"] as? String
+        userIcon = data["userIcon"] as? String
+        clips = data["clips"] as? [String:Any]
+        communities = data["communities"] as? [String:Any]
+        blocked = data["blocked"] as? [String:Any]
+        locked = data["locked"] as? Bool
     }
 }

@@ -16,6 +16,9 @@ pod 'Firebase/Storage'
 pod 'SDWebImage'
 pod 'SegementSlide'
 pod 'MessageKit'
+pod 'FloatingPanel'
+pod 'ActiveLabel'
+pod 'lottie-ios'
 
 end
 

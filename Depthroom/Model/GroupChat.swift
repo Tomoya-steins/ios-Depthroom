@@ -9,17 +9,17 @@ import Foundation
 import Firebase
 
 struct GroupChat {
-    let context: String!
+    let body: String!
     let messageID: String!
-    let senderID: String!
-    let senderName: String!
+    let from: String!
     let timeStamp: Timestamp!
+    let type: String!
 
     init(data: [String: Any]) {
-        context = data["context"] as? String
+        body = data["body"] as? String
         messageID = data["messageID"] as? String
-        senderID = data["senderID"] as? String
-        senderName = data["senderName"] as? String
+        from = data["from"] as? String
         timeStamp = data["timeStamp"] as? Timestamp
+        type = data["type"] as? String
     }
 }

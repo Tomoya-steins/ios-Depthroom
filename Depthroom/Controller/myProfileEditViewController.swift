@@ -15,7 +15,7 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
     var database: Firestore!
     var storage: Storage!
     var auth: Auth!
-    @IBOutlet weak var myUserNameLabel: UITextField!
+    @IBOutlet weak var myUserNameLabel: CustomTextField!
     @IBOutlet weak var myProfileImage: UIImageView!
     @IBOutlet weak var myProfileContent: UITextView!
     
@@ -26,14 +26,16 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
         checkModel.showCheckPermission()
         database = Firestore.firestore()
         storage = Storage.storage()
+        
+        
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         myUserNameLabel.text = me.userName
-        myProfileContent.text = me.description
+        myProfileContent.text = me.userDescription
         
-        if let icon = me.icon{
+        if let icon = me.userIcon{
             let storageRef = icon
             //URL型に代入
             if let photoURL = URL(string: storageRef){
@@ -49,7 +51,8 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
             }
         }else{
             //画像を表示
-            let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+            //let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+            let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child(me.userID).child("icon.jpg")
             myProfileImage.sd_setImage(with: storageRef)
         }
     }
@@ -68,7 +71,7 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
             let meRef = database.collection("users").document(me.userID)
             meRef.setData([
                 "userName": newUserNameLabel,
-                "description": newUserProfile
+                "userDescription": newUserProfile
             ], merge: true)
                         
             self.dismiss(animated: true, completion: nil)
@@ -156,7 +159,8 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
         let profileImage = image?.jpegData(compressionQuality: 0.1)
         
 //        let imageRef = Storage.storage().reference().child("profileImage")
-        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+        //let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+        let storageRef = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child(me.userID).child("icon.jpg")
         let metaData = StorageMetadata()
         metaData.contentType = "image/jpg"
         if profileImage != nil {
@@ -180,7 +184,7 @@ class myProfileEditViewController: UIViewController,UIImagePickerControllerDeleg
                         
                         //名前などの更新の前にアイコンに対してurlをstringで保存(更新)する
                         self.database.collection("users").document(self.me.userID).updateData([
-                            "icon": url!.absoluteString
+                            "userIcon": url!.absoluteString
                         ])
                     }
                     //ここちょっと自信がないです

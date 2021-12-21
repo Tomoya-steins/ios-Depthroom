@@ -1,427 +1,612 @@
-//
-//  myRoomsViewController.swift
-//  Depthroom
-//
-//  Created by NakagawaTomoya on 2021/07/03.
-//
-
 import UIKit
 import Firebase
 import FirebaseStorageUI
+import FloatingPanel
+import ActiveLabel
 
-class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewDataSource {
+class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewDataSource, UICollectionViewDelegate, UICollectionViewDataSource {
     
     var me: AppUser!
     var myName: String!
     var myIcon: String!
     var myDescription: String!
+    var ownerUser: AppUser!
     var database: Firestore!
     var storage: Storage!
-    var invitation: [[String: Any]] = []
-    @IBOutlet weak var tableView: UITableView!
-    var roomArray:[Room] = [] {
-        didSet{
-            //roomArray配列に変化があった際に呼ばれる
-            tableView.reloadData()
-        }
+    //var listener: ListenerRegistration?
+    //ルーム作成ボタン
+    let createRoomButton = UIButton()
+    //サイドメニューボタン
+    let sideMenuButton = UIButton()
+    //sideMenuを導入
+    let sideMenu = sideMenuViewController()
+    let contentViewController = UINavigationController()
+    private var isShownSidemenu: Bool {
+        return sideMenu.parent == self
     }
-    //予約しているルーム配列
-    var reserveRoomArray:[Room] = []
-    //主に招待されているルームを一覧から選択したときに(タップ時に)、ifで見分ける際に使う
-    var invitationArray: [String] = []
-    @IBOutlet weak var buttonToMyPage: UIButton!
+    @IBOutlet weak var tableView: UITableView!
+    @IBOutlet weak var collectionView: UICollectionView!
+    var roomArray:[Room] = []
+    //招待されたルーム情報を入れる
+    var inviteMeArray: [Room] = []
+    //clipRoomArrayとmyCommunityArrayはサイドメニューで
+    var clipRoomButton: [String] = []
+    var myCommunityArray: [Community] = []
+    var recentMessage = "noTextData"
+    var tagsArray: [String] = []
+    //人気のコミュニティを10個ぶん配列に入れる
+    var popularCommunityArray: [Community] = []
+    //自身がブロックしているユーザ情報
+    var blockedUserArray: [AppUser] = []
+    //セミモーダル(部屋作成の際に出現)
+    var fpc: FloatingPanelController!
+    //クルクル
+    var indicator = UIActivityIndicatorView()
+    //背景になるview
+    var backView = UIView()
+    //招待と所属を分ける
+    var sections: [String] = ["invitationa", "myRoom"]
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.navigationController?.setNavigationBarHidden(true, animated: false)
         database = Firestore.firestore()
         storage = Storage.storage()
         tableView.delegate = self
         tableView.dataSource = self
+        collectionView.delegate = self
+        collectionView.dataSource = self
+        
+        //ルーム作成ボタン
+        createRoomButton.frame = CGRect(x: 5*view.frame.width/7, y: 7*view.frame.height/9, width: view.frame.height/10, height: view.frame.height/10)
+        createRoomButton.setImage(UIImage(systemName: "plus.circle"), for: .normal)
+        createRoomButton.tintColor = UIColor.green
+        createRoomButton.imageView?.contentMode = .scaleAspectFit
+        createRoomButton.contentHorizontalAlignment = .fill
+        createRoomButton.contentVerticalAlignment = .fill
+        createRoomButton.addTarget(self, action: #selector(self.buttonToCreateRoom), for: .touchUpInside)
+        view.addSubview(createRoomButton)
         
         //カスタムしたセルを登録(roomCell)
-        tableView.register(UINib(nibName: "roomCell", bundle: nil), forCellReuseIdentifier: "Cell")
-        //クルクル更新します
-        configureRefreshControl()
-    }
-    
-    func configureRefreshControl(){
-        tableView.refreshControl = UIRefreshControl()
-        tableView.refreshControl?.addTarget(self, action: #selector(handleRefreshControl), for: .valueChanged)
-    }
-    
-    @objc func handleRefreshControl(){
+        tableView.register(UINib(nibName: "roomsCell", bundle: nil), forCellReuseIdentifier: "Cell")
+        //collectionセルを登録
+        let nib = UINib(nibName: "communityCollectionViewCell", bundle: nil)
+        collectionView!.register(nib, forCellWithReuseIdentifier: "Cell")
+        collectionSetup()
         
-        //時間予約に達したら、visibleをtrueにする
-        activeRoomFromReserved()
-        //ルームの内容に変更があったら、更新する
+        //部屋作成のオプション周り
+        semiModal()
+        fpc.delegate = self
+        fpc.backdropView.dismissalTapGestureRecognizer.isEnabled = true
+        
+        //sideMenuボタン
+        sideMenuButton.frame = CGRect(x: view.frame.width/11, y: view.frame.width/10, width:35, height:35)
+        sideMenuButton.setImage(UIImage(systemName: "text.justify"), for: .normal)
+        sideMenuButton.imageView?.contentMode = .scaleAspectFit
+        sideMenuButton.contentHorizontalAlignment = .fill
+        sideMenuButton.contentVerticalAlignment = .fill
+        sideMenuButton.addTarget(self, action: #selector(self.buttonToSideMenu), for: .touchUpInside)
+        view.addSubview(sideMenuButton)
         
         
-        DispatchQueue.main.async{
-            self.tableView.reloadData()
-            self.tableView.refreshControl?.endRefreshing()  //これを必ず記載すること
+        
+        //buttonToSideMenu.imageView?.contentMode = .scaleAspectFit
+        //buttonToSideMenu.contentHorizontalAlignment = .fill
+        //buttonToSideMenu.contentVerticalAlignment = .fill
+        //sideMenu周り
+        addChild(contentViewController)
+        //view.addSubview(contentViewController.view)
+        contentViewController.didMove(toParent: self)
+        sideMenu.delegate = self
+        sideMenu.startPanGestureRecognizing()
+        
+        //インディケータを動かす
+        if indicator.isAnimating == false{
+            showIndicator()
         }
+        
+        roomInfo()
+        //ルームの情報を取得
+        roomInfoFromFirebase()
+        //コミュニティ関係
+        communityInfo()
+        //インディケータが動いていたら、止める
+        DispatchQueue.main.async{
+            if self.indicator.isAnimating == true{
+                self.hideIndicator()
+            }
+        }
+    }
+    
+    //部屋作成ボタンを押した際に、openかcloseかの選択オプションを表示
+    func semiModal(){
+        fpc = FloatingPanelController()
+        //モーダルを角丸にする
+        let appearance = SurfaceAppearance()
+        appearance.cornerRadius = 10.0
+        fpc.surfaceView.appearance = appearance
+        //セミモーダルビューとなるコントローラを生成、ルームのオプションを表示
+        let roomOptionViewController = roomOptionViewController()
+        fpc.set(contentViewController: roomOptionViewController)
+    }
+    
+//    func configureRefreshControl(){
+//        tableView.refreshControl = UIRefreshControl()
+//        tableView.refreshControl?.addTarget(self, action: #selector(handleRefreshControl), for: .valueChanged)
+//    }
+    
+//    @objc func handleRefreshControl(){
+//        roomInfo()
+//        roomInfoFromFirebase()
+//
+//        DispatchQueue.main.async{
+//            //self.tableView.reloadData()
+//            self.tableView.refreshControl?.endRefreshing()  //これを必ず記載すること
+//        }
+//    }
+    
+    private func showIndicator(){
+        backView.frame = self.view.frame
+        backView.backgroundColor = UIColor.init(white: 0.0, alpha: 0.0)
+        indicator.center = view.center
+        indicator.style = .large
+        indicator.color = UIColor(red: 44/255, green: 169/255, blue: 225/255, alpha: 1)
+        backView.addSubview(indicator)
+        view.addSubview(backView)
+        indicator.startAnimating()
+    }
+    private func hideIndicator(){
+        indicator.stopAnimating()
+        backView.removeFromSuperview()
     }
     
     override func viewWillAppear(_ animated: Bool) {
+        //self.tableView.reloadData()
         super.viewWillAppear(animated)
         self.navigationController?.setNavigationBarHidden(true, animated: false)
-        roomInfo()
-        //tableView.reloadData()
-        //予約時間に達した部屋を入室可能状態にする(visibleをfalseからtrueに)
-        activeRoomFromReserved()
-        
+        self.tabBarController?.tabBar.isHidden = false
     }
     
-    @IBAction func buttonToMyPage(_ sender: Any) {
-        performSegue(withIdentifier: "myPage", sender: me)
-    }
-    
-    @IBAction func buttonToPostIndex(_ sender: Any) {
-        performSegue(withIdentifier: "postIndex", sender: me)
-    }
-    
-    @IBAction func buttonToCreateRoom(_ sender: Any) {
-        performSegue(withIdentifier: "createRoom", sender: me)
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        //セミモーダルビューを非表示に
+        fpc.removePanelFromParent(animated: true)
     }
     
     
-    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        if segue.identifier == "myPage"{
-            let nextViewController = segue.destination as! myPageViewController
-            nextViewController.user = AppUser(data: ["userID": me.userID!])
-        }
-        if segue.identifier == "postIndex"{
-            let nextViewController = segue.destination as! postIndexViewController
-            nextViewController.me = AppUser(data: ["userID": me.userID!])
-        }
-        if segue.identifier == "createRoom"{
-            let nextViewController = segue.destination as! newRoomViewController1
-            nextViewController.me = AppUser(data: ["userID": me.userID!])
-        }
-        if segue.identifier == "roomChat"{
-            let nextViewController = segue.destination as! roomChatViewController
-            //ルームのID情報を送る
-            nextViewController.room = Room(data: ["roomID": roomArray[sender as! Int].roomID!])
-        }
+    @objc func buttonToCreateRoom(_ sender: Any){
+        fpc.addPanel(toParent: self, animated: true, completion: nil)
+    }
+    
+    //コレクションの準備
+    private func collectionSetup(){
+        let cellWidth = UIScreen.main.bounds.width/2 - 90
+        let layout = PagingPerCellFlowLayout()
+        layout.headerReferenceSize = CGSize(width: 20, height: collectionView.frame.height)
+        layout.footerReferenceSize = CGSize(width: 20, height: collectionView.frame.height)
+        layout.scrollDirection = .horizontal
+        layout.minimumLineSpacing = 16
+        layout.itemSize = CGSize(width: cellWidth, height: collectionView.frame.height-10)
+        collectionView.collectionViewLayout = layout
     }
     
     //ユーザの名前の情報を取得し、roomInfoFromFirebaseに渡す
     func roomInfo(){
-        database.collection("users").document(me.userID).getDocument { (snapshot, error) in
+        database.collection("users").document(me.userID).addSnapshotListener { (snapshot, error) in
             if error == nil, let snapshot = snapshot, let data = snapshot.data() {
+                self.blockedUserArray = []
                 self.me = AppUser(data: data)
-                
-                //アイコンの情報を渡して画像を表示
-                if let icon = self.me.icon{
-                    let storageRef = icon
-                    //URL型に代入
-                    if let photoURL = URL(string: storageRef){
-                        //data型→image型に代入
-                        do{
-                            let data = try Data(contentsOf: photoURL)
-                            let image = UIImage(data: data)
-                            self.buttonToMyPage.setImage(image, for: .normal)
-                            //角丸に
-                            self.buttonToMyPage.layer.masksToBounds = true
-                            self.buttonToMyPage.layer.cornerRadius = 35
-                        }
-                        catch{
-                            print("error")
-                            return
-                        }
-                    }
-                    
-                }else{
-                    //ユーザ詳細のボタンにプロフィール画像を表示
-                    //何もなければdefaultを設定
-                    //2021/10/01 アイコンのURLをFireStore上に保存する処理が完了したため、以下の文章はいずれ消える
-                    
-                    let storageRef = self.storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(self.me.userID!).jpg")
-                    //キャッシュを消して画像を表示
-                    SDImageCache.shared.removeImage(forKey: "\(storageRef)", withCompletion: nil)
-                    storageRef.downloadURL { (url, error) in
-                        if error != nil{
-                            print("error: \(error!.localizedDescription)")
-                            return
-                        }
-                        //URL型に代入
-                        if let photoURL = URL(string: url!.absoluteString){
-                            //data型→image型に代入
-                            do{
-                                let data = try Data(contentsOf: photoURL)
-                                let image = UIImage(data: data)
-                                self.buttonToMyPage.setImage(image, for: .normal)
-                                //角丸に
-                                self.buttonToMyPage.layer.masksToBounds = true
-                                self.buttonToMyPage.layer.cornerRadius = 35
-                            }
-                            catch{
-                                print("error")
-                                return
-                            }
-                            
-                        }
+                //ルームをクリップしていたら配列に情報が入る
+                if self.me.clips != nil{
+                    //1個のみ入れる
+                    if self.clipRoomButton.count == 0{
+                        self.clipRoomButton.append("お気に入り")
+                        self.tableView.reloadData()
                     }
                 }
-                
-                //ポップアップのために自身の名前を渡す
-                self.myName = self.me.userName
-                self.myIcon = self.me.icon
-                self.myDescription = self.me.description
-                //ルームの情報を取得(viewWillAppearとの違いはわからない)
-                
-                self.roomInfoFromFirebase()
+                //自身がブロックしているユーザを配列に入れる
+                //自身を招待しているルームの中から、自身がブロックしていないルームのみを表示させるため
+                if let blocked = self.me.blocked{
+                    for block in blocked.values{
+                        let user = AppUser(data: block as! [String:Any])
+                        self.blockedUserArray.append(user)
+                    }
+                }
             }
         }
+        //listener?.remove()
     }
-    
     
     //fireStoreからルーム情報を取得するためのメソッド
     func roomInfoFromFirebase(){
-        roomArray = []
-        invitationArray = []
-        
-        //自身が所属するルームの内容をFireStoreから取得
-        database.collection("rooms").whereField("members.\(me.userID!).userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
+        //ドキュメントに何かあったら初期化
+        inviteMeArray = []
+       //自身が所属するルームの内容をFireStoreから取得
+        database.collection("rooms").whereField("members.\(me.userID!).userID", isEqualTo: me.userID!).addSnapshotListener { (snapshot, error) in
             if error == nil, let snapshot = snapshot{
+                //ドキュメントが変更されたら初期化
+                self.roomArray = []
                 for document in snapshot.documents{
-                    //自身が所属するルームを配列に追加
                     let data = document.data()
                     let room = Room(data: data)
                     self.roomArray.append(room)
+                }
+                //更新順にソート2021/12/14一旦停止
+//                if self.roomArray.isEmpty != true{
+//                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3){
+//                        self.roomArray.sort(by: {$0.updatedAt.dateValue().compare($1.updatedAt.dateValue()) == .orderedDescending})
+//                    }
+//                }
+                self.tableView.reloadData()
+            }
+        }
+        
+        //roomsのinvitationから自身データを含むドキュメントを取得、invitationArrayに格納
+        //inviteMeArrayにルームの情報を取得、その後roomArrayにappendする
+        database.collection("rooms").whereField("invitations.\(me.userID!).userID", isEqualTo: me.userID!).addSnapshotListener { (snapshot, error) in
+            if error == nil, let snapshot = snapshot{
+                //ドキュメントが変更されたら初期化
+                self.inviteMeArray = []
+                for document in snapshot.documents{
+                    let data = document.data()
+                    let room = Room(data: data)
+                    //ここで、このルームのオーナを自身がブロックしているかどうかで処理を分ける
+                    //自分が相手をブロックしていなければ表示する
+                    let user = AppUser(data: room.owner)
+                    if self.blockedUserArray.firstIndex(where: { $0.userID == user.userID}) == nil{
+                        self.inviteMeArray.append(room)
+                    }
                 }
                 self.tableView.reloadData()
             }
         }
-//        //memberが一人のみの場合以下のarrayContainsの手法は使用できないため、専用の検索方法を用意
-//        database.collection("rooms").whereField("members.userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
-//            if error == nil, let snapshot = snapshot{
-//                for document in snapshot.documents{
-//                    let data = document.data()
-//                    let room = Room(data: data)
-//                    self.roomArray.append(room)
-//                }
-//                self.tableView.reloadData()
-//            }
-//        }
-        
-//        //自身が所属するルームの内容をFireStoreから取得
-//        database.collection("rooms").whereField("members", arrayContains: ["userID": me.userID!, "userName": meName]).getDocuments { (snapshot, error) in
-//            if error == nil, let snapshot = snapshot{
-//                for document in snapshot.documents{
-//                    //自身が所属するルームを配列に追加
-//                    let data = document.data()
-//                    let room = Room(data: data)
-//                    self.roomArray.append(room)
-//                }
-//                self.tableView.reloadData()
-//            }
-//        }
-        
-        //roomsのinvitationから自身データを含むドキュメントを取得、invitationArrayに格納
-        database.collection("rooms").whereField("invitation.\(me.userID!).userID", isEqualTo: me.userID!).getDocuments { (snapshot, error) in
+    }
+    
+    func communityInfo(){
+        //自身の所属しているコミュニティ情報を取得
+        database.collection("communities").whereField("members.\(me.userID!).userID", isEqualTo: me.userID!).addSnapshotListener { (snapshot, error) in
             if error == nil, let snapshot = snapshot{
+                self.myCommunityArray = []
                 for document in snapshot.documents{
-                    //invitationArray はポップアップ表示の際に使われる
-                    self.invitationArray.append(document.documentID)
                     let data = document.data()
-                    let room = Room(data: data)
-                    self.roomArray.append(room)
+                    let community = Community(data: data)
+                    self.myCommunityArray.append(community)
                 }
             }
         }
-        
-        
-        //invitationから自身のデータを含むドキュメントを取得、invitationArrayに格納
-//        database.collection("invitation").whereField("users", arrayContains: ["userID": me.userID!]).getDocuments { (snapshot, error) in
-//            if error == nil, let snapshot = snapshot{
-//                for document in snapshot.documents{
-//                    //invitationArray はポップアップ表示の際に使われる
-//                    self.invitationArray.append(document.documentID)
-//                    //ドキュメントID == roomID のため取得し、invitationToRooms()にてroomArrayにappendを行う
-//                    let roomID = document.documentID
-//                    self.invitationToRooms(roomID: roomID)
-//                }
-//            }
-//        }
-        
-        //updatedAtが新しい順にroomArrayの順番を並べ替える
-        if roomArray.isEmpty != true{
-            roomArray.sort(by: {$0.updatedAt.compare($1.updatedAt) == .orderedAscending})
+        //人気のコミュニティを10件取得
+        database.collection("communities").order(by: "weeklyMembersCount", descending: true).limit(to: 10).addSnapshotListener { (snapshot, error) in
+            if error == nil, let snapshot = snapshot{
+                self.popularCommunityArray = []
+                for document in snapshot.documents{
+                    let data = document.data()
+                    let community = Community(data: data)
+                    self.popularCommunityArray.append(community)
+                }
+                self.collectionView.reloadData()
+            }
         }
     }
-    //invitationから受け取ったroomIDでroomの情報を取得、roomArrayに追加
-//    func invitationToRooms(roomID: String){
-//        database.collection("rooms").document(roomID).getDocument { (snapshot, error) in
-//            if error == nil, ((snapshot?.exists) != nil) ,let snapshot = snapshot{
-//                let data = snapshot.data()
-//                let room = Room(data: data!)
-//
-////                if let mapData = data!["members"] as? [String:Any] {
-////                    print("aaaaaaaaaaa")
-////                    print("あああ:", mapData)
-////                }
-//
-//                self.roomArray.append(room)
-//            }else{
-//                print("Document does not exist")
-//            }
-//            self.tableView.reloadData()
-//        }
-//    }
     
-    func activeRoomFromReserved(){
-        //インスタンス化
-        reserveRoomArray = []
-        //自身が所属・招待されている部屋の中から予約されている部屋を見つける
-        for room in roomArray{
-            if room.visible == false{
-                reserveRoomArray.append(room)
+    //ソートを行う
+    func sortArray(){
+        //自身を招待している部屋があるのなら、roomArrayに追加
+        if inviteMeArray.isEmpty != true{
+            //この順番
+            if roomArray.isEmpty != true{
+                //招待ルーム→所属ルームの更新早い順を実現させるために必要
+                roomArray.sort(by: {$0.updatedAt.dateValue().compare($1.updatedAt.dateValue()) == .orderedDescending})
+                
+                roomArray.reverse()
+                roomArray.append(contentsOf: inviteMeArray)
+                roomArray.reverse()
+            }else{
+                roomArray.append(contentsOf: inviteMeArray)
             }
+        }else if roomArray.isEmpty != true{
+            roomArray.sort(by: {$0.updatedAt.dateValue().compare($1.updatedAt.dateValue()) == .orderedDescending})
         }
-        //予約時間が現在時刻を超えていたらvisibleをtrueにする
-        for reserve in reserveRoomArray{
-            let date = reserve.updatedAt.dateValue()
-            if Date() >= date {
-                database.collection("rooms").document(reserve.roomID).updateData([
-                    "visible": true
-                ]) { err in
-                    if let err = err {
-                        print("Error updating document: \(err)")
-                    } else {
-                        print("Document successfully updated")
-                    }
+        tableView.reloadData()
+    }
+    
+    //キャンセル・参加・拒否の3つを提示する
+    func inviteAlert(room: Room){
+        let dispatchGroup = DispatchGroup()
+        let dispatchQueue = DispatchQueue(label: "queue")
+        let semaphore = DispatchSemaphore(value: 0)
+        let confirmJoin = UIAlertController(title: "参加確認", message: "「\(room.roomName!)」に参加しますか?", preferredStyle: .alert)
+        
+        confirmJoin.addAction(UIAlertAction(title: "キャンセル", style: .cancel, handler: nil))
+        confirmJoin.addAction(UIAlertAction(title: "参加", style: .default, handler: { (action) in
+            self.showIndicator()
+            dispatchQueue.async(group: dispatchGroup) {
+                let meInfo = [
+                    "userID": self.me.userID,
+                    "userIcon": self.me.userIcon,
+                    "userName": self.me.userName
+                ]
+                self.database.collection("rooms").document(room.roomID).updateData([
+                    "invitations.\(self.me.userID!)": FieldValue.delete(),
+                    "members.\(self.me.userID!)": meInfo
+                ])
+                semaphore.signal()
+            }
+            dispatchGroup.notify(queue: .main){
+                semaphore.wait()
+                if self.indicator.isAnimating == true{
+                    self.hideIndicator()
                 }
-                //fireStoreへの情報を変更したため、roomArrayを一からやり直す
-                self.roomInfo()
-                //self.tableView.reloadData()
+                self.tableView.reloadData()
+                let nextViewController = self.storyboard?.instantiateViewController(identifier: "roomChat") as! roomChatViewController
+                nextViewController.room = room
+                self.navigationController?.pushViewController(nextViewController, animated: true)
             }
+        }))
+        confirmJoin.addAction(UIAlertAction(title: "辞退", style: .default, handler: { (action) in
+            self.showIndicator()
+            dispatchQueue.async(group: dispatchGroup) {
+                self.database.collection("rooms").document(room.roomID).updateData([
+                    "invitations.\(self.me.userID!)": FieldValue.delete()
+                ])
+                semaphore.signal()
+            }
+            dispatchGroup.notify(queue: .main){
+                semaphore.wait()
+                if self.indicator.isAnimating == true{
+                    self.hideIndicator()
+                }
+                self.tableView.reloadData()
+                self.dismiss(animated: true, completion: nil)
+            }
+        }))
+        present(confirmJoin, animated: true, completion: nil)
+    }
+    
+    //sideMenuをタップした時
+    @objc func buttonToSideMenu(_ sender: Any){
+        showSideMenu(animated: true)
+    }
+    
+    private func showSideMenu(contentAvailability: Bool = true, animated: Bool){
+        if isShownSidemenu {return}
+        
+        self.addChild(sideMenu)
+        sideMenu.view.autoresizingMask = .flexibleHeight
+        sideMenu.view.frame = contentViewController.view.bounds
+        sideMenu.communityArray = myCommunityArray
+        sideMenu.me = me
+        sideMenu.clipRoomButton = clipRoomButton
+        view.insertSubview(sideMenu.view, aboveSubview: contentViewController.view)
+        sideMenu.didMove(toParent: self)
+        if contentAvailability{
+            sideMenu.showContentView(animated: animated)
         }
+    }
+    
+    private func hideSideMenu(animated: Bool){
+        if !isShownSidemenu {return}
+        
+        sideMenu.hideContentView(animated: animated, complection: { (_) in
+            self.sideMenu.willMove(toParent: nil)
+            self.sideMenu.removeFromParent()
+        })
+    }
+
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return sections.count
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        
-        //予約している場合false 予約していない場合trueで処理を分ける
-        if roomArray[indexPath.row].visible == true{
-            //招待されているルームか既に所属しているルームかをルームIDで見分けるためにroomArray[indexPath.row].roomIDとinvitationArrayを用いる
-            //invitationArray が空の時に挙動がおかしいため、if文を設ける
-            if invitationArray.isEmpty != true{
-                for invite in invitationArray{
-                    if roomArray[indexPath.row].roomID == invite{
-                        let modalViewController = storyboard?.instantiateViewController(identifier: "roomModalViewController") as! roomModalViewController
-                        modalViewController.modalPresentationStyle = .custom
-                        modalViewController.transitioningDelegate = self
-                        //自身のIDとルームIDと自身の名前とアイコンと紹介文を渡す
-                        modalViewController.meID = me.userID
-                        modalViewController.roomID = roomArray[indexPath.row].roomID
-                        modalViewController.meName = myName
-                        modalViewController.meIcon = myIcon
-                        modalViewController.meDescriotion = myDescription
-                        present(modalViewController, animated: true, completion: nil)
-                    }else{
-                        performSegue(withIdentifier: "roomChat", sender: indexPath.row)
-                    }
-                }
-            }else{
-                performSegue(withIdentifier: "roomChat", sender: indexPath.row)
-            }
-            //予約しており、まだ状態がfalseの場合↓
-        }else{
-            if invitationArray.isEmpty != true{
-                for invite in invitationArray{
-                    if roomArray[indexPath.row].roomID == invite{
-                        //表示するポップアップは上記と同じ(roomModalViewController)
-                    }else{
-                        //予約時間にならないため入室できないという旨のポップアップ
-                    }
-                }
-            }else{
-                //予約時間にならないため入室できないという旨のポップアップを
-            }
+        switch indexPath.section{
+        case 0:
+            //アラートを表示
+            inviteAlert(room: inviteMeArray[indexPath.row])
+        case 1:
+            //ルームチャットへの遷移
+            let nextViewController = self.storyboard?.instantiateViewController(identifier: "roomChat") as! roomChatViewController
+            nextViewController.room = roomArray[indexPath.row]
+            self.navigationController?.pushViewController(nextViewController, animated: true)
+        default:
+            break
         }
+        tableView.deselectRow(at: indexPath, animated: true)
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return roomArray.count
+        switch section{
+        case 0:
+            return inviteMeArray.count
+        case 1:
+            return roomArray.count
+        default:
+            return 0
+        }
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        
-        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! roomCell
-        //ルームの名前を表示
-        cell.roomNameLabel.text = roomArray[indexPath.row].roomName
-        
-        //予約した時間をreserveDayにてとってきてcellに表示
-        if roomArray[indexPath.row].visible == false{
-            cell.reserveLabel.text = reserveDay(updatedAt: roomArray[indexPath.row].updatedAt)
-        }else{
-            //ここにはすでにルームにアクセスできる部屋に対しての残り時間を表示する
-            
-        }
-        
-        //ルームにおける最新のメッセージを表示
-        database.collection("rooms").document(roomArray[indexPath.row].roomID).collection("messages").order(by: "timeStamp", descending: true).limit(to: 1).getDocuments { (snapShot, error) in
-            guard snapShot != nil else{
-                print("snapShot is nil")
-                return
+        let cell = tableView.dequeueReusableCell(withIdentifier: "Cell", for: indexPath) as! roomsCell
+        switch indexPath.section{
+        //招待者
+        case 0:
+            //ルームの名前を表示
+            cell.roomNameLabel.text = inviteMeArray[indexPath.row].roomName
+            //ルームにおける最新のメッセージを表示
+            if inviteMeArray[indexPath.row].recentMessage != nil{
+                let recentMessage = GroupChat(data: inviteMeArray[indexPath.row].recentMessage)
+                cell.messageLabel.text = recentMessage.body
+            }else{
+                cell.messageLabel.text = recentMessage
             }
-            if error == nil, let snapShot = snapShot{
-                for document in snapShot.documents{
-                    let data = document.data()
-                    let message = GroupChat(data: data)
-                    cell.messageLabel.text = message.context
+            //更新時間
+            if inviteMeArray[indexPath.row].updatedAt != nil{
+                let time = inviteMeArray[indexPath.row].updatedAt.dateValue()
+                let formatter = DateFormatter()
+                formatter.dateFormat = "HH:mm"
+                cell.updatedTimeLabel.text = "\(formatter.string(from: time))"
+            }
+            //タグ
+            if let tags = inviteMeArray[indexPath.row].tags{
+                //ここで配列を初期化
+                tagsArray = []
+                for data in tags.values{
+                    let tag = Tag(data: data as! [String : Any])
+                    self.tagsArray.append(tag.tagName)
                 }
             }
+            //取得したタグを結合
+            let tagsString = tagsArray.joined(separator: "")
+            let tagText = cell.tagLabel!
+            tagText.text = tagsString
+            //ルームのオーナーの画像を取得・表示
+            if inviteMeArray[indexPath.row].owner != nil{
+                let owner = AppUser(data: inviteMeArray[indexPath.row].owner)
+                if let icon = owner.userIcon{
+                    if let photoURL = URL(string: icon){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            cell.roomOwnerImageView.image = image
+                        }
+                        catch{
+                            print("error")
+                        }
+                    }
+                }
+            }
+            //ルームオーナのborderを黒色に
+            let color: UIColor = UIColor.black
+            cell.roomOwnerImageView.layer.borderColor = color.cgColor
+            return cell
+        //所属
+        case 1:
+            //ルームの名前を表示
+            cell.roomNameLabel.text = roomArray[indexPath.row].roomName
+            //ルームにおける最新のメッセージを表示
+            if roomArray[indexPath.row].recentMessage != nil{
+                let recentMessage = GroupChat(data: roomArray[indexPath.row].recentMessage)
+                cell.messageLabel.text = recentMessage.body
+            }else{
+                cell.messageLabel.text = recentMessage
+            }
+            //更新時間
+            if roomArray[indexPath.row].updatedAt != nil{
+                let time = roomArray[indexPath.row].updatedAt.dateValue()
+                let formatter = DateFormatter()
+                formatter.dateFormat = "HH:mm"
+                cell.updatedTimeLabel.text = "\(formatter.string(from: time))"
+            }
+            //タグ
+            if let tags = roomArray[indexPath.row].tags{
+                //ここで配列を初期化
+                tagsArray = []
+                for data in tags.values{
+                    let tag = Tag(data: data as! [String : Any])
+                    self.tagsArray.append(tag.tagName)
+                }
+            }
+            //取得したタグを結合
+            let tagsString = tagsArray.joined(separator: "")
+            let tagText = cell.tagLabel!
+            tagText.text = tagsString
+            //コミュニティとしてルームを作成していた場合
+            if let communities = roomArray[indexPath.row].community{
+                let community = Community(data: communities)
+                if let icon = community.communityIcon{
+                    if let photoURL = URL(string: icon){
+                        do{
+                            let data = try Data(contentsOf: photoURL)
+                            let image = UIImage(data: data)
+                            cell.roomOwnerImageView.image = image
+                        }
+                        catch{
+                            print("error")
+                        }
+                    }
+                }
+                //ルームオーナのborderをcommunityColorに
+                let color: UIColor = UIColor(hex: community.communityColor)!
+                cell.roomOwnerImageView.layer.borderColor = color.cgColor
+            }else{
+                //ルームのオーナーの画像を取得・表示
+                if roomArray[indexPath.row].owner != nil{
+                    let owner = AppUser(data: roomArray[indexPath.row].owner)
+                    if let icon = owner.userIcon{
+                        if let photoURL = URL(string: icon){
+                            do{
+                                let data = try Data(contentsOf: photoURL)
+                                let image = UIImage(data: data)
+                                cell.roomOwnerImageView.image = image
+                            }
+                            catch{
+                                print("error")
+                            }
+                        }
+                    }
+                }
+                //ルームオーナのborderを黒色に
+                let color: UIColor = UIColor.black
+                cell.roomOwnerImageView.layer.borderColor = color.cgColor
+            }
+            return cell
+        default:
+            cell.roomNameLabel.text = ""
+            return cell
         }
+    }
+    
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return view.frame.height/9
+    }
+    
+    //コレクション
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
+        if kind == "UICollectionElementKindSectionHeader"{
+            let section = collectionView.dequeueReusableSupplementaryView(ofKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: "header", for: indexPath)
+            return section
+        }else{
+            let section = collectionView.dequeueReusableSupplementaryView(ofKind: UICollectionView.elementKindSectionFooter, withReuseIdentifier: "footer", for: indexPath)
+            return section
+        }
+    }
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let nextViewController = self.storyboard?.instantiateViewController(identifier: "communityPage") as! communityShowViewController
+        nextViewController.community = popularCommunityArray[indexPath.row]
+        nextViewController.me = me
+        self.navigationController?.pushViewController(nextViewController, animated: true)
+    }
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return popularCommunityArray.count
+    }
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "Cell", for: indexPath) as! communityCollectionViewCell
+        cell.backgroundColor = UIColor.white
+        cell.layer.cornerRadius = 5
+        cell.layer.shadowOpacity = 0.4
+        cell.layer.shadowRadius = 5
+        cell.layer.shadowColor = UIColor.black.cgColor
+        cell.layer.shadowOffset = CGSize(width: 8, height: 8)
+        cell.layer.masksToBounds = false
         
-        //ルームのサムネイル画像を表示
-        if let icon = roomArray[indexPath.row].icon{
-            let storageRef = icon
-            //URL型に代入
-            if let photoURL = URL(string: storageRef){
+        cell.communityNameLabel.text = popularCommunityArray[indexPath.row].communityName
+        cell.communityMembersCount.text = "\(popularCommunityArray[indexPath.row].weeklyMembersCount!)人が参加中!"
+        if let icon = popularCommunityArray[indexPath.row].communityIcon{
+            if let photoURL = URL(string: icon){
                 do{
-                    //data→image型に代入
                     let data = try Data(contentsOf: photoURL)
                     let image = UIImage(data: data)
-                    cell.roomThumbnailImageView.image = image
+                    cell.communityIconImage.image = image
                 }
                 catch{
                     print("error")
                 }
             }
-        }else{
-            let storageRefRoom = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("rooms").child("roomThumbnail").child("\(roomArray[indexPath.row].roomID!).jpg")
-            
-            SDImageCache.shared.removeImage(forKey: "\(storageRefRoom)", withCompletion: nil)
-            cell.roomThumbnailImageView.sd_setImage(with: storageRefRoom)
         }
-        
-        //2021/10/02 サムネイル画像はusers に保存されているが、
-        //cellForRowAtではusersに対してgetDocumentしていないため、
-        //ストレージから直接呼び出すのと大差ない
-        
-        //ルームのオーナーの画像を取得・表示
-        let storageRefOwner = storage.reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(roomArray[indexPath.row].ownerID!).jpg")
-        SDImageCache.shared.removeImage(forKey: "\(storageRefOwner)", withCompletion: nil)
-        cell.roomOwnerImageView.sd_setImage(with: storageRefOwner)
+        let iconColor: UIColor = UIColor(hex: popularCommunityArray[indexPath.row].communityColor)!
+        cell.communityIconImage.layer.borderColor = iconColor.cgColor
+        let headerColor: UIColor = UIColor(hex: self.popularCommunityArray[indexPath.row].communityColor)!
+        cell.communityMainColor.backgroundColor = headerColor
         
         return cell
-    }
-    
-    func reserveDay(updatedAt: Timestamp) -> String{
-        //timeStampをdateに変換
-        let date = updatedAt.dateValue()
-        //dateをformatを通してstringに変換
-        let formatter: DateFormatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "y年MM月dd日 HH:mm"
-        
-        return formatter.string(from: date)
-    }
-    
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        //今回(2021/08/20)は130に設定
-        return 130
     }
 }
 
@@ -429,5 +614,54 @@ class myRoomsViewController: UIViewController, UITableViewDelegate, UITableViewD
 extension myRoomsViewController: UIViewControllerTransitioningDelegate{
     func presentationController(forPresented presented: UIViewController, presenting: UIViewController?, source: UIViewController) -> UIPresentationController?{
         return customPresentationController(presentedViewController: presented, presenting: presenting)
+    }
+}
+
+//sideMenu周り
+extension myRoomsViewController: FloatingPanelControllerDelegate{
+    func floatingPanel(_ fpc: FloatingPanelController, layoutFor newCollection: UITraitCollection) -> FloatingPanelLayout{
+        return CustomFloatingPanelLayout()
+    }
+}
+
+extension myRoomsViewController: sideMenuViewControllerDelegate{
+    func sidemenuViewController(_ sidemenuViewController: sideMenuViewController, didSelectItemAt indexPath: IndexPath) {
+        hideSideMenu(animated: true)
+    }
+    func parentViewControllerForSideMenuViewController(_ sidemenuViewController: sideMenuViewController) -> UIViewController {
+        return self
+    }
+    func shouldPresentForSideMenuViewController(_ sidemenuViewController: sideMenuViewController) -> Bool {
+        return true
+    }
+    func sideMenuViewControllerDidRequestShowing(_ sidemenuViewController: sideMenuViewController, contentAvailability: Bool, animated: Bool) {
+        showSideMenu(contentAvailability: contentAvailability, animated: animated)
+    }
+    func sideMenuViewControllerDidRequestHiding(_ sidemenuViewController: sideMenuViewController, animated: Bool) {
+        hideSideMenu(animated: animated)
+    }
+}
+
+
+class CustomFloatingPanelLayout: FloatingPanelLayout{
+    let position: FloatingPanelPosition = .bottom
+    let initialState: FloatingPanelState = .half
+    var anchors: [FloatingPanelState: FloatingPanelLayoutAnchoring]{
+        return [
+            //.tip: FloatingPanelLayoutAnchor(absoluteInset: 100, edge: .bottom, referenceGuide: .safeArea),
+            .half: FloatingPanelLayoutAnchor(absoluteInset: 230.0, edge: .bottom, referenceGuide: .safeArea),
+            //.full: FloatingPanelLayoutAnchor(absoluteInset: 20, edge: .top, referenceGuide: .safeArea)
+        ]
+    }
+    
+    func backdropAlpha(for state: FloatingPanelState) -> CGFloat {
+        switch state {
+        //case .full:
+            //return 0.3
+        case .half:
+            return 0.3
+        default:
+            return 0.0
+        }
     }
 }

@@ -10,38 +10,40 @@ import Firebase
 
 class newRegisterViewController: UIViewController {
 
-    @IBOutlet weak var emailTextField: UITextField!
-    @IBOutlet weak var passwordTextField: UITextField!
+    @IBOutlet weak var emailTextField: CustomTextField!
+    @IBOutlet weak var passwordTextField: CustomTextField!
+    @IBOutlet weak var registerAccountButton: UIButton!
     
     var auth: Auth!
-    var database: Firestore!
+    var me: AppUser!
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
         auth = Auth.auth()
         emailTextField.delegate = self
         passwordTextField.delegate = self
-        
+        registerAccountButtonSet()
+    }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.navigationController?.setNavigationBarHidden(true, animated: false)
     }
     
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        self.navigationController?.setNavigationBarHidden(true, animated: false)
-        if auth.currentUser != nil{
-            performSegue(withIdentifier: "addition", sender: auth.currentUser!)
-        }
+    func registerAccountButtonSet(){
+        registerAccountButton.backgroundColor = UIColor(displayP3Red: 79/255, green: 172/255, blue: 254/255,alpha: 1.0)
+        registerAccountButton.setTitleColor(.white, for: .normal)
+        registerAccountButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14.0)
+        registerAccountButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 15, bottom: 10, right: 15)
+        registerAccountButton.layer.cornerRadius = 15.0
+        registerAccountButton.layer.shadowColor = UIColor(displayP3Red: 0.0, green: 0.0, blue: 0.0, alpha: 0.6).cgColor
+        registerAccountButton.layer.shadowOffset = CGSize(width: 3, height: 3)
+        registerAccountButton.layer.shadowOpacity = 0.3
+        registerAccountButton.layer.shadowRadius = 5
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-    
         if segue.identifier == "addition"{
           let nextViewController = segue.destination as! additionalRegisterViewController
-            let user = sender as! User
-            nextViewController.me = AppUser(data: ["userID" : user.uid])
-        }
-        if segue.identifier == "rooms"{
-            let nextViewController = segue.destination as! myRoomsViewController
             let user = sender as! User
             nextViewController.me = AppUser(data: ["userID" : user.uid])
         }
@@ -52,19 +54,14 @@ class newRegisterViewController: UIViewController {
         if emailTextField.text?.isEmpty != true && passwordTextField.text?.isEmpty != true{
             
             auth.createUser(withEmail: emailTextField.text!, password: passwordTextField.text!) { result, error in
-                
+
                 if error == nil, let result = result{
-                    
+
                     self.performSegue(withIdentifier: "addition", sender: result.user)
                 }
                 self.showErrorIfNeeded(error)
             }
         }
-    }
-    
-    @IBAction func buttonToLogin(_ sender: Any) {
-        let loginViewController = storyboard?.instantiateViewController(identifier: "login") as! loginViewController
-        self.navigationController?.pushViewController(loginViewController, animated: true)
     }
     
     //エラーに関する記述

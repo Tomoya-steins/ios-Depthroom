@@ -13,8 +13,9 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
     var auth: Auth!
     var me: AppUser!
     var database: Firestore!
-    @IBOutlet weak var nameTextField: UITextField!
+    @IBOutlet weak var nameTextField: CustomTextField!
     @IBOutlet weak var profileImageView: UIImageView!
+    @IBOutlet weak var additionalRegisterButton: UIButton!
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,9 +24,8 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
         let checkModel = CheckPermission()
         checkModel.showCheckPermission()
         nameTextField.delegate = self
-        
+        additionalRegisterButtonSet()
     }
-    
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.navigationController?.setNavigationBarHidden(true, animated: false)
@@ -34,10 +34,21 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
         let userNameRef = database.collection("users").document(me.userID)
         userNameRef.getDocument { (document, error) in
             if let document = document, document.exists {
-                self.performSegue(withIdentifier: "rooms", sender: self.me)
+                self.performSegue(withIdentifier: "tabBar", sender: self.me)
             }
         }
-        
+    }
+    
+    func additionalRegisterButtonSet(){
+        additionalRegisterButton.backgroundColor = UIColor(hex: "#FF6A6A")
+        additionalRegisterButton.setTitleColor(.white, for: .normal)
+        additionalRegisterButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 14.0)
+        additionalRegisterButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 15, bottom: 10, right: 15)
+        additionalRegisterButton.layer.cornerRadius = 15.0
+        additionalRegisterButton.layer.shadowColor = UIColor(displayP3Red: 0.0, green: 0.0, blue: 0.0, alpha: 0.6).cgColor
+        additionalRegisterButton.layer.shadowOffset = CGSize(width: 3, height: 3)
+        additionalRegisterButton.layer.shadowOpacity = 0.3
+        additionalRegisterButton.layer.shadowRadius = 5
     }
     
     @IBAction func additionalRegister(_ sender: Any) {
@@ -45,27 +56,34 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
             if nameTextField.text?.isEmpty != true, let image = profileImageView.image {
                 
                 let newUserName = nameTextField.text!
-                //プロフィール画像を登録
-                let data = image.jpegData(compressionQuality: 1.0)
-                self.sendProfileImageData(data: data!)
+                //非同期処理に対応
+                let dispatchGroup = DispatchGroup()
+                let dispatchQueue = DispatchQueue(label: "queue", attributes: .concurrent)
+                dispatchQueue.async(group: dispatchGroup) {
+                    //プロフィール画像を登録
+                    let data = image.jpegData(compressionQuality: 1.0)
+                    self.sendProfileImageData(data: data!)
+                }
                 
                 //ユーザネームとIDを登録
                 //事前にアイコンを保存しているため、set ではなく update
+                //登録時は全員非鍵アカウントであるので、lockedはfalse
                 database.collection("users").document(me.userID).setData([
                     "userID": me.userID!,
                     "userName": newUserName,
+                    "locked": false
                 ], merge: true)
                 
-                performSegue(withIdentifier: "rooms", sender: me)
+                dispatchGroup.notify(queue: .main){
+                    self.performSegue(withIdentifier: "tabBar", sender: self.me)
+                }
             }
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
-        if segue.identifier == "rooms"{
-          let nextViewController = segue.destination as! myRoomsViewController
-            
-            //名前はString型で
-            nextViewController.me = AppUser(data: ["userID": me.userID!])
+        if segue.identifier == "tabBar"{
+            let nextViewController = segue.destination as! tabBarViewController
+            nextViewController.me = me
         }
     }
 
@@ -146,7 +164,8 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
         let profileImage = image?.jpegData(compressionQuality: 0.1)
         
 //        let imageRef = Storage.storage().reference().child("profileImage")
-        let storageRef = Storage.storage().reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+        //let storageRef = Storage.storage().reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child("profileImage").child("\(me.userID!).jpg")
+        let storageRef = Storage.storage().reference(forURL: "gs://depthroom-ios-21786.appspot.com").child("users").child(me.userID).child("icon.jpg")
         let metaData = StorageMetadata()
         metaData.contentType = "image/jpg"
         if profileImage != nil {
@@ -170,7 +189,7 @@ class additionalRegisterViewController: UIViewController, UIImagePickerControlle
                         
                         //名前などの前にアイコンのurlをstringで保存する
                         self.database.collection("users").document(self.me.userID).setData([
-                            "icon": url!.absoluteString
+                            "userIcon": url!.absoluteString
                         ],merge: true)
                     }
                     //ここちょっと自信がないです

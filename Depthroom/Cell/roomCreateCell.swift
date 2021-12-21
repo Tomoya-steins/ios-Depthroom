@@ -11,13 +11,10 @@ class roomCreateCell: UITableViewCell {
 
     @IBOutlet weak var profileImageView: UIImageView!
     @IBOutlet weak var userNameLabel: UILabel!
-    @IBOutlet weak var checkImage: UIImageView!
     
     override func awakeFromNib() {
         super.awakeFromNib()
-        profileImageView.layer.cornerRadius = 35.0
-        
-        checkImage.isHidden = true
+        profileImageView.layer.cornerRadius = profileImageView.frame.height/2
     }
 
     override func setSelected(_ selected: Bool, animated: Bool) {
